@@ -1,0 +1,131 @@
+"""Google Sheets read/write via gspread."""
+import json
+from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
+from config import settings
+
+_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
+
+# Row 8 is the real header row; data starts at row 9
+HEADER_ROW = 8
+DATA_START_ROW = 9
+
+# Column indices (1-based) matching the header row layout:
+# '', Category, Property/Name, Notes, URL, Status, Jan, Feb, Mar, Apr, May,
+# Jun, Jul, Aug, Sep, Oct, Nov, Dec, Payment Amounts
+COL_CATEGORY = 2
+COL_TASK = 3
+COL_STATUS = 6
+COL_MONTH_START = 7   # January
+COL_MONTH_END = 18    # December
+
+MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _client() -> gspread.Client:
+    creds_data = json.loads(settings.GOOGLE_SHEETS_CREDS_JSON)
+    creds = Credentials.from_service_account_info(creds_data, scopes=_SCOPES)
+    return gspread.authorize(creds)
+
+
+def get_sheet(tab_name: str) -> gspread.Worksheet:
+    client = _client()
+    spreadsheet = client.open_by_key(settings.SPREADSHEET_ID)
+    return spreadsheet.worksheet(tab_name)
+
+
+def _parse_date(raw: str) -> str | None:
+    """Try to parse a date string and return YYYY-MM-DD, or None on failure."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
+def get_deadlines(tab_name: str = str(settings.ACTIVE_YEAR)) -> list[dict]:
+    """
+    Parse the year tab and return one dict per (task, due-date) pair.
+
+    Each dict contains: Task, Due Date (YYYY-MM-DD), Status, Category,
+    Notes, sheet_row (1-based), status_col (1-based, always COL_STATUS).
+    """
+    sheet = get_sheet(tab_name)
+    all_rows = sheet.get_all_values()  # list of lists, 0-based index
+
+    deadlines = []
+    current_category = ""
+
+    for row_idx, row in enumerate(all_rows, start=1):
+        if row_idx < DATA_START_ROW:
+            continue
+
+        # Pad row to avoid index errors on short rows
+        row = row + [""] * (COL_MONTH_END)
+
+        category_val = row[COL_CATEGORY - 1].strip()
+        task_val = row[COL_TASK - 1].strip()
+        status_val = row[COL_STATUS - 1].strip()
+
+        # Section header rows: have a category value but no task name
+        if category_val and not task_val:
+            current_category = category_val
+            continue
+
+        if not task_val:
+            continue
+
+        # Collect all due dates from month columns
+        for month_offset in range(12):
+            col_idx = COL_MONTH_START + month_offset  # 1-based
+            raw_date = row[col_idx - 1].strip()
+            due_date = _parse_date(raw_date)
+            if due_date:
+                deadlines.append({
+                    "Task": task_val,
+                    "Due Date": due_date,
+                    "Status": status_val,
+                    "Category": current_category,
+                    "Notes": row[3].strip(),  # col D
+                    "sheet_row": row_idx,
+                    "status_col": COL_STATUS,
+                })
+
+    return deadlines
+
+
+def update_status(sheet_row: int, value: str, tab_name: str = str(settings.ACTIVE_YEAR)) -> None:
+    """Write a new status into the Status column for a given row."""
+    sheet = get_sheet(tab_name)
+    sheet.update_cell(sheet_row, COL_STATUS, value)
+
+
+def find_and_update(
+    tab_name: str,
+    lookup_col: str,
+    lookup_value: str,
+    update_col: str,
+    update_value: str,
+) -> bool:
+    """
+    Scan deadlines for a task name match and update its Status column.
+    lookup_col / update_col are accepted for API compatibility but only
+    'Task' -> 'Status' is supported by the custom sheet layout.
+    """
+    deadlines = get_deadlines(tab_name)
+    for entry in deadlines:
+        if entry.get(lookup_col, "").strip().lower() == lookup_value.strip().lower():
+            update_status(entry["sheet_row"], update_value, tab_name)
+            return True
+    return False

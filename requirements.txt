@@ -1,0 +1,6 @@
+gspread==6.1.2
+APScheduler==3.10.4
+python-dotenv==1.0.1
+rapidfuzz==3.9.0
+google-auth==2.29.0
+requests==2.31.0
