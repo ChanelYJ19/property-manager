@@ -7,7 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Bot
 
-from app import sheets
+from app import rate_limit, sheets
 from app.optin import get_chat_id, is_opted_in
 from app.telegram_bot import send_monthly_summary_threadsafe, send_overdue_alert_threadsafe, send_reminder_threadsafe
 
@@ -48,9 +48,14 @@ def check_and_remind(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
 
         days_until = (due - today).days
         if days_until in REMINDER_DAYS_AHEAD:
-            send_reminder_threadsafe(bot, loop, deadline)
+            if not rate_limit.already_sent(deadline["sheet_row"], raw_due, days_until):
+                if send_reminder_threadsafe(bot, loop, deadline):
+                    rate_limit.mark_sent(deadline["sheet_row"], raw_due, days_until)
         elif days_until < 0 and abs(days_until) in OVERDUE_ALERT_DAYS:
-            send_overdue_alert_threadsafe(bot, loop, deadline)
+            interval = days_until  # negative, e.g. -1, -3, -7
+            if not rate_limit.already_sent(deadline["sheet_row"], raw_due, interval):
+                if send_overdue_alert_threadsafe(bot, loop, deadline):
+                    rate_limit.mark_sent(deadline["sheet_row"], raw_due, interval)
 
 
 def monthly_summary_job(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:

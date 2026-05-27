@@ -279,28 +279,30 @@ def build_app() -> Application:
     return app
 
 
-def _threadsafe(coro, loop: asyncio.AbstractEventLoop, task_name: str) -> None:
+def _threadsafe(coro, loop: asyncio.AbstractEventLoop, task_name: str) -> bool:
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     try:
         future.result(timeout=15)
+        return True
     except Exception:
         log.exception("Telegram send failed for '%s'", task_name)
+        return False
 
 
-def send_reminder_threadsafe(bot: Bot, loop: asyncio.AbstractEventLoop, deadline: dict) -> None:
+def send_reminder_threadsafe(bot: Bot, loop: asyncio.AbstractEventLoop, deadline: dict) -> bool:
     chat_id = get_chat_id()
     if not chat_id:
         log.warning("No Telegram chat_id registered — skipping reminder for '%s'", deadline.get("Task"))
-        return
-    _threadsafe(send_reminder(bot, chat_id, deadline), loop, deadline.get("Task", ""))
+        return False
+    return _threadsafe(send_reminder(bot, chat_id, deadline), loop, deadline.get("Task", ""))
 
 
-def send_overdue_alert_threadsafe(bot: Bot, loop: asyncio.AbstractEventLoop, deadline: dict) -> None:
+def send_overdue_alert_threadsafe(bot: Bot, loop: asyncio.AbstractEventLoop, deadline: dict) -> bool:
     chat_id = get_chat_id()
     if not chat_id:
         log.warning("No Telegram chat_id registered — skipping overdue alert for '%s'", deadline.get("Task"))
-        return
-    _threadsafe(send_overdue_alert(bot, chat_id, deadline), loop, deadline.get("Task", ""))
+        return False
+    return _threadsafe(send_overdue_alert(bot, chat_id, deadline), loop, deadline.get("Task", ""))
 
 
 async def send_monthly_summary(bot: Bot, chat_id: str) -> None:
