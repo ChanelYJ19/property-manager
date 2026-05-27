@@ -32,3 +32,14 @@ def set_opted_in() -> None:
 def set_opted_out() -> None:
     _save({"opted_in": False})
     log.info("Opt-out recorded")
+
+
+def get_chat_id() -> str | None:
+    return _load().get("telegram_chat_id")
+
+
+def set_chat_id(chat_id: str) -> None:
+    state = _load()
+    state["telegram_chat_id"] = chat_id
+    _save(state)
+    log.info("Registered Telegram chat_id=%s", chat_id)

@@ -1,20 +1,28 @@
-"""Daily APScheduler job: check deadlines and send SMS reminders."""
+"""Daily APScheduler job: check deadlines and send Telegram reminders."""
+import asyncio
 import logging
 from datetime import date, datetime
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from telegram import Bot
 
-from app import sheets, sms
-from app.optin import is_opted_in
-from config import settings
+from app import sheets
+from app.optin import get_chat_id, is_opted_in
+from app.telegram_bot import send_reminder_threadsafe
 
 log = logging.getLogger(__name__)
 
-REMINDER_DAYS_AHEAD = [7, 3, 1]  # send reminders this many days before due date
-def check_and_remind() -> None:
-    """Scan the active year sheet and send SMS for upcoming tasks."""
+REMINDER_DAYS_AHEAD = [7, 3, 1]
+
+
+def check_and_remind(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
     if not is_opted_in():
         log.info("Opt-in not confirmed — skipping reminders")
+        return
+
+    if not get_chat_id():
+        log.info("No Telegram chat registered — skipping reminders")
         return
 
     try:
@@ -39,21 +47,17 @@ def check_and_remind() -> None:
 
         days_until = (due - today).days
         if days_until in REMINDER_DAYS_AHEAD:
-            message = sms.build_reminder(deadline)
-            try:
-                sid = sms.send_sms(message)
-                log.info("Sent reminder SID=%s for task '%s'", sid, deadline.get("Task"))
-            except Exception:
-                log.exception("Failed to send SMS for task '%s'", deadline.get("Task"))
+            send_reminder_threadsafe(bot, loop, deadline)
 
 
-def start_scheduler() -> BackgroundScheduler:
+def start_scheduler(bot: Bot, loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         check_and_remind,
-        trigger=CronTrigger(hour=9, minute=0),  # 9 AM daily
+        trigger=CronTrigger(hour=9, minute=0),
         id="daily_reminder",
         replace_existing=True,
+        kwargs={"bot": bot, "loop": loop},
     )
     scheduler.start()
     log.info("Scheduler started — daily reminders at 09:00")
