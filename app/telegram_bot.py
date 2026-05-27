@@ -275,11 +275,34 @@ async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+async def _cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        deadlines = sheets.get_deadlines()
+    except Exception:
+        log.exception("Failed to fetch deadlines for /test")
+        await update.message.reply_text("Couldn't reach the sheet — try again in a moment.")
+        return
+
+    pending = [d for d in deadlines if d.get("Status", "").strip().upper() not in ("DONE", "SKIPPED")]
+    if not pending:
+        await update.message.reply_text("No pending tasks in the sheet to test with.")
+        return
+
+    deadline = pending[0]
+    await update.message.reply_text(
+        "🧪 <b>Test reminder</b> — using your first pending task.\n"
+        "<i>Buttons are live and will update the sheet if tapped.</i>",
+        parse_mode="HTML",
+    )
+    await send_reminder(context.bot, str(update.effective_chat.id), deadline)
+
+
 def build_app() -> Application:
     app = ApplicationBuilder().token(settings.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", _cmd_start))
     app.add_handler(CommandHandler("status", _cmd_status))
     app.add_handler(CommandHandler("done", _cmd_done))
+    app.add_handler(CommandHandler("test", _cmd_test))
     app.add_handler(CallbackQueryHandler(_handle_button))
     return app
 
