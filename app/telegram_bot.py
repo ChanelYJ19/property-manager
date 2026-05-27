@@ -1,5 +1,6 @@
 """Two-way Telegram bot: sends deadline reminders with action buttons."""
 import asyncio
+import html
 import logging
 from datetime import date, datetime, timedelta
 
@@ -19,6 +20,10 @@ from app.optin import get_chat_id, set_chat_id
 from config import settings
 
 log = logging.getLogger(__name__)
+
+
+def _esc(text) -> str:
+    return html.escape(str(text))
 
 
 def _keyboard(sheet_row: int, due_col: int) -> InlineKeyboardMarkup:
@@ -46,18 +51,14 @@ async def send_overdue_alert(bot: Bot, chat_id: str, deadline: dict) -> None:
     category = deadline.get("Category", "")
     days_overdue = (date.today() - datetime.strptime(due, "%Y-%m-%d").date()).days
 
-    header = f"[{category}] " if category else ""
-    if days_overdue == 1:
-        overdue_str = "1 day overdue"
-    else:
-        overdue_str = f"{days_overdue} days overdue"
-
-    text = f"⚠️ {header}*{name}* is {overdue_str} (was due {due})."
+    header = f"[{_esc(category)}] " if category else ""
+    overdue_str = "1 day overdue" if days_overdue == 1 else f"{days_overdue} days overdue"
+    text = f"⚠️ {header}<b>{_esc(name)}</b> is {overdue_str} (was due {_esc(due)})."
 
     await bot.send_message(
         chat_id=chat_id,
         text=text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_keyboard(deadline["sheet_row"], deadline["due_date_col"]),
     )
     log.info("Sent overdue alert for '%s' (%s days)", name, days_overdue)
@@ -70,19 +71,19 @@ async def send_reminder(bot: Bot, chat_id: str, deadline: dict) -> None:
     days_until = (datetime.strptime(due, "%Y-%m-%d").date() - date.today()).days
 
     if days_until == 1:
-        urgency = "due *tomorrow*"
+        urgency = "due <b>tomorrow</b>"
     elif days_until == 0:
-        urgency = "*due today*"
+        urgency = "<b>due today</b>"
     else:
-        urgency = f"due in {days_until} days ({due})"
+        urgency = f"due in {days_until} days ({_esc(due)})"
 
-    header = f"[{category}] " if category else ""
-    text = f"{header}*{name}* is {urgency}."
+    header = f"[{_esc(category)}] " if category else ""
+    text = f"{header}<b>{_esc(name)}</b> is {urgency}."
 
     await bot.send_message(
         chat_id=chat_id,
         text=text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_keyboard(deadline["sheet_row"], deadline["due_date_col"]),
     )
     log.info("Sent Telegram reminder for '%s'", name)
@@ -112,21 +113,21 @@ def _status_text(deadlines: list[dict]) -> str:
     lines = []
     if overdue:
         overdue.sort()
-        lines.append("*Overdue:*")
+        lines.append("<b>Overdue:</b>")
         for days, task, due in overdue:
-            lines.append(f"• ⚠️ *{task}* — {days} day{'s' if days != 1 else ''} overdue (was due {due})")
+            lines.append(f"• ⚠️ <b>{_esc(task)}</b> — {days} day{'s' if days != 1 else ''} overdue (was due {_esc(due)})")
         lines.append("")
     if upcoming:
         upcoming.sort()
-        lines.append("*Upcoming:*")
+        lines.append("<b>Upcoming:</b>")
         for days, task, due in upcoming:
             if days == 0:
                 label = "today"
             elif days == 1:
                 label = "tomorrow"
             else:
-                label = f"in {days} days ({due})"
-            lines.append(f"• *{task}* — {label}")
+                label = f"in {days} days ({_esc(due)})"
+            lines.append(f"• <b>{_esc(task)}</b> — {label}")
     return "\n".join(lines)
 
 
@@ -135,14 +136,14 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     set_chat_id(chat_id)
     await update.message.reply_text(
         "You're all set! I'll send deadline reminders here.\n\n"
-        "Tap *Mark Done*, *Skip*, or *Snooze* on any reminder to update the sheet.\n"
-        "Or type /done _task name_ anytime — I'll figure out which task you mean.\n"
+        "Tap <b>Mark Done</b>, <b>Skip</b>, or <b>Snooze</b> on any reminder to update the sheet.\n"
+        "Or type /done <i>task name</i> anytime — I'll figure out which task you mean.\n"
         "Use /status to check what's coming up.",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
     try:
         deadlines = sheets.get_deadlines()
-        await update.message.reply_text(_status_text(deadlines), parse_mode="Markdown")
+        await update.message.reply_text(_status_text(deadlines), parse_mode="HTML")
     except Exception:
         log.exception("Failed to fetch deadlines for /start confirmation")
         await update.message.reply_text("Couldn't load deadlines right now — try /status in a moment.")
@@ -155,7 +156,7 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         log.exception("Failed to fetch deadlines for /status")
         await update.message.reply_text("Couldn't reach the sheet right now — try again in a moment.")
         return
-    await update.message.reply_text(_status_text(deadlines), parse_mode="Markdown")
+    await update.message.reply_text(_status_text(deadlines), parse_mode="HTML")
 
 
 async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -164,7 +165,8 @@ async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     parts = query.data.split(":")
     action = parts[0]
-    original_text = query.message.text or ""
+    # query.message.text is plain text — escape it before embedding in HTML
+    original = _esc(query.message.text or "")
 
     if action in ("done", "skip"):
         sheet_row = int(parts[1])
@@ -174,22 +176,22 @@ async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             sheets.update_status(sheet_row, new_status)
             icon = "✅" if action == "done" else "⏭️"
             await query.edit_message_text(
-                text=f"{original_text}\n\n{icon} _Marked as {new_status}_",
-                parse_mode="Markdown",
+                text=f"{original}\n\n{icon} <i>Marked as {new_status}</i>",
+                parse_mode="HTML",
             )
             log.info("Row %s marked %s via Telegram", sheet_row, new_status)
         except Exception:
             log.exception("Failed to update row %s", sheet_row)
             await query.edit_message_text(
-                text=original_text + "\n\n⚠️ _Update failed — check the sheet._",
-                parse_mode="Markdown",
+                text=original + "\n\n⚠️ <i>Update failed — check the sheet.</i>",
+                parse_mode="HTML",
             )
 
     elif action == "snooze":
         sheet_row, due_col = int(parts[1]), int(parts[2])
         await query.edit_message_text(
-            text=original_text + "\n\nSnooze for how long?",
-            parse_mode="Markdown",
+            text=original + "\n\nSnooze for how long?",
+            parse_mode="HTML",
             reply_markup=_snooze_keyboard(sheet_row, due_col),
         )
 
@@ -201,22 +203,22 @@ async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             sheets.update_due_date(sheet_row, due_col, new_due_str)
             label = "1 day" if days == 1 else f"{days} days"
             await query.edit_message_text(
-                text=original_text + f"\n\n⏰ _Snoozed {label} — new due date: {new_due_str}_",
-                parse_mode="Markdown",
+                text=original + f"\n\n⏰ <i>Snoozed {label} — new due date: {_esc(new_due_str)}</i>",
+                parse_mode="HTML",
             )
             log.info("Row %s snoozed %s days, new due %s", sheet_row, days, new_due_str)
         except Exception:
             log.exception("Failed to snooze row %s", sheet_row)
             await query.edit_message_text(
-                text=original_text + "\n\n⚠️ _Snooze failed — check the sheet._",
-                parse_mode="Markdown",
+                text=original + "\n\n⚠️ <i>Snooze failed — check the sheet.</i>",
+                parse_mode="HTML",
             )
 
     elif action == "snz_cancel":
         sheet_row, due_col = int(parts[1]), int(parts[2])
         await query.edit_message_text(
-            text=original_text,
-            parse_mode="Markdown",
+            text=original,
+            parse_mode="HTML",
             reply_markup=_keyboard(sheet_row, due_col),
         )
 
@@ -225,8 +227,8 @@ async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query_text = " ".join(context.args).strip()
     if not query_text:
         await update.message.reply_text(
-            "Tell me which task to mark done — e.g. `/done insurance renewal`",
-            parse_mode="Markdown",
+            "Tell me which task to mark done — e.g. <code>/done insurance renewal</code>",
+            parse_mode="HTML",
         )
         return
 
@@ -247,8 +249,8 @@ async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not matches:
         await update.message.reply_text(
-            f"Couldn't find a task matching _{query_text}_. Use /status to see pending tasks.",
-            parse_mode="Markdown",
+            f"Couldn't find a task matching <i>{_esc(query_text)}</i>. Use /status to see pending tasks.",
+            parse_mode="HTML",
         )
         return
 
@@ -257,15 +259,18 @@ async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if best_score >= 85:
         sheets.update_status(best_deadline["sheet_row"], "Done")
-        await update.message.reply_text(f"✅ Marked *{best_name}* as Done.", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✅ Marked <b>{_esc(best_name)}</b> as Done.",
+            parse_mode="HTML",
+        )
     else:
         buttons = [
             [InlineKeyboardButton(name, callback_data=f"done:{pending[idx]['sheet_row']}")]
             for name, _score, idx in matches
         ]
         await update.message.reply_text(
-            f"Which task did you mean?\n_(searched for: _{query_text}_)_",
-            parse_mode="Markdown",
+            f"Which task did you mean?\n<i>(searched for: {_esc(query_text)})</i>",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
@@ -330,27 +335,26 @@ async def send_monthly_summary(bot: Bot, chat_id: str) -> None:
 
     month_tasks.sort(key=lambda t: t[0])
 
-    # Group by category
     by_category: dict[str, list[tuple]] = {}
     for due, d in month_tasks:
         cat = d.get("Category", "Other") or "Other"
         by_category.setdefault(cat, []).append((due, d))
 
     pending = sum(1 for _, d in month_tasks if d.get("Status", "").strip().upper() not in ("DONE", "SKIPPED"))
-    lines = [f"📅 *{month_label}* — {len(month_tasks)} task{'s' if len(month_tasks) != 1 else ''} ({pending} pending)\n"]
+    lines = [f"📅 <b>{_esc(month_label)}</b> — {len(month_tasks)} task{'s' if len(month_tasks) != 1 else ''} ({pending} pending)\n"]
 
     for cat, tasks in by_category.items():
-        lines.append(f"*{cat}*")
+        lines.append(f"<b>{_esc(cat)}</b>")
         for due, d in tasks:
             status = d.get("Status", "").strip().upper()
             icon = "✅" if status == "DONE" else "⏭️" if status == "SKIPPED" else "•"
-            lines.append(f"{icon} {d['Task']} — {due.strftime('%b')} {due.day}")
+            lines.append(f"{icon} {_esc(d['Task'])} — {due.strftime('%b')} {due.day}")
         lines.append("")
 
     await bot.send_message(
         chat_id=chat_id,
         text="\n".join(lines).rstrip(),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
     log.info("Sent monthly summary for %s", month_label)
 
