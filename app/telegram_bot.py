@@ -1,7 +1,7 @@
 """Two-way Telegram bot: sends deadline reminders with action buttons."""
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -19,11 +19,23 @@ from config import settings
 log = logging.getLogger(__name__)
 
 
-def _keyboard(sheet_row: int) -> InlineKeyboardMarkup:
+def _keyboard(sheet_row: int, due_col: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Mark Done", callback_data=f"done:{sheet_row}"),
         InlineKeyboardButton("⏭️ Skip", callback_data=f"skip:{sheet_row}"),
+        InlineKeyboardButton("⏰ Snooze", callback_data=f"snooze:{sheet_row}:{due_col}"),
     ]])
+
+
+def _snooze_keyboard(sheet_row: int, due_col: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("1 day", callback_data=f"snz:1:{sheet_row}:{due_col}"),
+            InlineKeyboardButton("3 days", callback_data=f"snz:3:{sheet_row}:{due_col}"),
+            InlineKeyboardButton("7 days", callback_data=f"snz:7:{sheet_row}:{due_col}"),
+        ],
+        [InlineKeyboardButton("↩️ Cancel", callback_data=f"snz_cancel:{sheet_row}:{due_col}")],
+    ])
 
 
 async def send_overdue_alert(bot: Bot, chat_id: str, deadline: dict) -> None:
@@ -44,7 +56,7 @@ async def send_overdue_alert(bot: Bot, chat_id: str, deadline: dict) -> None:
         chat_id=chat_id,
         text=text,
         parse_mode="Markdown",
-        reply_markup=_keyboard(deadline["sheet_row"]),
+        reply_markup=_keyboard(deadline["sheet_row"], deadline["due_date_col"]),
     )
     log.info("Sent overdue alert for '%s' (%s days)", name, days_overdue)
 
@@ -69,7 +81,7 @@ async def send_reminder(bot: Bot, chat_id: str, deadline: dict) -> None:
         chat_id=chat_id,
         text=text,
         parse_mode="Markdown",
-        reply_markup=_keyboard(deadline["sheet_row"]),
+        reply_markup=_keyboard(deadline["sheet_row"], deadline["due_date_col"]),
     )
     log.info("Sent Telegram reminder for '%s'", name)
 
@@ -144,27 +156,62 @@ async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     await query.answer()
 
-    action, raw_row = query.data.split(":", 1)
-    sheet_row = int(raw_row)
-    status_map = {"done": "Done", "skip": "Skipped"}
-    new_status = status_map.get(action)
-    if not new_status:
-        return
+    parts = query.data.split(":")
+    action = parts[0]
+    original_text = query.message.text or ""
 
-    try:
-        sheets.update_status(sheet_row, new_status)
-        icon = "✅" if action == "done" else "⏭️"
-        original = query.message.text or ""
+    if action in ("done", "skip"):
+        sheet_row = int(parts[1])
+        status_map = {"done": "Done", "skip": "Skipped"}
+        new_status = status_map[action]
+        try:
+            sheets.update_status(sheet_row, new_status)
+            icon = "✅" if action == "done" else "⏭️"
+            await query.edit_message_text(
+                text=f"{original_text}\n\n{icon} _Marked as {new_status}_",
+                parse_mode="Markdown",
+            )
+            log.info("Row %s marked %s via Telegram", sheet_row, new_status)
+        except Exception:
+            log.exception("Failed to update row %s", sheet_row)
+            await query.edit_message_text(
+                text=original_text + "\n\n⚠️ _Update failed — check the sheet._",
+                parse_mode="Markdown",
+            )
+
+    elif action == "snooze":
+        sheet_row, due_col = int(parts[1]), int(parts[2])
         await query.edit_message_text(
-            text=f"{original}\n\n{icon} _Marked as {new_status}_",
+            text=original_text + "\n\nSnooze for how long?",
             parse_mode="Markdown",
+            reply_markup=_snooze_keyboard(sheet_row, due_col),
         )
-        log.info("Row %s marked %s via Telegram", sheet_row, new_status)
-    except Exception:
-        log.exception("Failed to update row %s", sheet_row)
+
+    elif action == "snz":
+        days, sheet_row, due_col = int(parts[1]), int(parts[2]), int(parts[3])
+        new_due = date.today() + timedelta(days=days)
+        new_due_str = new_due.strftime("%m/%d/%Y")
+        try:
+            sheets.update_due_date(sheet_row, due_col, new_due_str)
+            label = "1 day" if days == 1 else f"{days} days"
+            await query.edit_message_text(
+                text=original_text + f"\n\n⏰ _Snoozed {label} — new due date: {new_due_str}_",
+                parse_mode="Markdown",
+            )
+            log.info("Row %s snoozed %s days, new due %s", sheet_row, days, new_due_str)
+        except Exception:
+            log.exception("Failed to snooze row %s", sheet_row)
+            await query.edit_message_text(
+                text=original_text + "\n\n⚠️ _Snooze failed — check the sheet._",
+                parse_mode="Markdown",
+            )
+
+    elif action == "snz_cancel":
+        sheet_row, due_col = int(parts[1]), int(parts[2])
         await query.edit_message_text(
-            text=(query.message.text or "") + "\n\n⚠️ _Update failed — check the sheet._",
+            text=original_text,
             parse_mode="Markdown",
+            reply_markup=_keyboard(sheet_row, due_col),
         )
 
 

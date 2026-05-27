@@ -100,6 +100,7 @@ def get_deadlines(tab_name: str = str(settings.ACTIVE_YEAR)) -> list[dict]:
                     "Notes": row[3].strip(),  # col D
                     "sheet_row": row_idx,
                     "status_col": COL_STATUS,
+                    "due_date_col": col_idx,
                 })
 
     return deadlines
@@ -109,6 +110,12 @@ def update_status(sheet_row: int, value: str, tab_name: str = str(settings.ACTIV
     """Write a new status into the Status column for a given row."""
     sheet = get_sheet(tab_name)
     sheet.update_cell(sheet_row, COL_STATUS, value)
+
+
+def update_due_date(sheet_row: int, due_date_col: int, new_date: str, tab_name: str = str(settings.ACTIVE_YEAR)) -> None:
+    """Write a new due date into the month column for a given row."""
+    sheet = get_sheet(tab_name)
+    sheet.update_cell(sheet_row, due_date_col, new_date)
 
 
 def find_and_update(
