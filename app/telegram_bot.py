@@ -86,25 +86,7 @@ async def send_reminder(bot: Bot, chat_id: str, deadline: dict) -> None:
     log.info("Sent Telegram reminder for '%s'", name)
 
 
-async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = str(update.effective_chat.id)
-    set_chat_id(chat_id)
-    await update.message.reply_text(
-        "You're all set! I'll send deadline reminders here.\n\n"
-        "Tap *Mark Done* or *Skip* on any reminder to update the sheet instantly.\n"
-        "Use /status to see what's coming up.",
-        parse_mode="Markdown",
-    )
-
-
-async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        deadlines = sheets.get_deadlines()
-    except Exception:
-        log.exception("Failed to fetch deadlines for /status")
-        await update.message.reply_text("Couldn't reach the sheet right now — try again in a moment.")
-        return
-
+def _status_text(deadlines: list[dict]) -> str:
     today = date.today()
     overdue = []
     upcoming = []
@@ -123,8 +105,7 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             upcoming.append((days_until, d["Task"], d["Due Date"]))
 
     if not overdue and not upcoming:
-        await update.message.reply_text("Nothing due or overdue in the next 30 days.")
-        return
+        return "Nothing due or overdue in the next 30 days."
 
     lines = []
     if overdue:
@@ -133,7 +114,6 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         for days, task, due in overdue:
             lines.append(f"• ⚠️ *{task}* — {days} day{'s' if days != 1 else ''} overdue (was due {due})")
         lines.append("")
-
     if upcoming:
         upcoming.sort()
         lines.append("*Upcoming:*")
@@ -145,11 +125,34 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             else:
                 label = f"in {days} days ({due})"
             lines.append(f"• *{task}* — {label}")
+    return "\n".join(lines)
 
+
+async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = str(update.effective_chat.id)
+    set_chat_id(chat_id)
     await update.message.reply_text(
-        "\n".join(lines),
+        "You're all set! I'll send deadline reminders here.\n\n"
+        "Tap *Mark Done*, *Skip*, or *Snooze* on any reminder to update the sheet.\n"
+        "Use /status anytime to check what's coming up.",
         parse_mode="Markdown",
     )
+    try:
+        deadlines = sheets.get_deadlines()
+        await update.message.reply_text(_status_text(deadlines), parse_mode="Markdown")
+    except Exception:
+        log.exception("Failed to fetch deadlines for /start confirmation")
+        await update.message.reply_text("Couldn't load deadlines right now — try /status in a moment.")
+
+
+async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        deadlines = sheets.get_deadlines()
+    except Exception:
+        log.exception("Failed to fetch deadlines for /status")
+        await update.message.reply_text("Couldn't reach the sheet right now — try again in a moment.")
+        return
+    await update.message.reply_text(_status_text(deadlines), parse_mode="Markdown")
 
 
 async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
