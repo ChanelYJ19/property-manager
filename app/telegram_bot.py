@@ -12,6 +12,8 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from rapidfuzz import fuzz, process
+
 from app import sheets
 from app.optin import get_chat_id, set_chat_id
 from config import settings
@@ -134,7 +136,8 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(
         "You're all set! I'll send deadline reminders here.\n\n"
         "Tap *Mark Done*, *Skip*, or *Snooze* on any reminder to update the sheet.\n"
-        "Use /status anytime to check what's coming up.",
+        "Or type /done _task name_ anytime — I'll figure out which task you mean.\n"
+        "Use /status to check what's coming up.",
         parse_mode="Markdown",
     )
     try:
@@ -218,10 +221,60 @@ async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
 
 
+async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query_text = " ".join(context.args).strip()
+    if not query_text:
+        await update.message.reply_text(
+            "Tell me which task to mark done — e.g. `/done insurance renewal`",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        deadlines = sheets.get_deadlines()
+    except Exception:
+        log.exception("Failed to fetch deadlines for /done")
+        await update.message.reply_text("Couldn't reach the sheet — try again in a moment.")
+        return
+
+    pending = [d for d in deadlines if d.get("Status", "").strip().upper() not in ("DONE", "SKIPPED")]
+    if not pending:
+        await update.message.reply_text("No pending tasks found.")
+        return
+
+    task_names = [d["Task"] for d in pending]
+    matches = process.extract(query_text, task_names, scorer=fuzz.WRatio, limit=3, score_cutoff=50)
+
+    if not matches:
+        await update.message.reply_text(
+            f"Couldn't find a task matching _{query_text}_. Use /status to see pending tasks.",
+            parse_mode="Markdown",
+        )
+        return
+
+    best_name, best_score, best_idx = matches[0]
+    best_deadline = pending[best_idx]
+
+    if best_score >= 85:
+        sheets.update_status(best_deadline["sheet_row"], "Done")
+        await update.message.reply_text(f"✅ Marked *{best_name}* as Done.", parse_mode="Markdown")
+    else:
+        buttons = [
+            [InlineKeyboardButton(name, callback_data=f"done:{pending[idx]['sheet_row']}")]
+            for name, _score, idx in matches
+        ]
+        await update.message.reply_text(
+            f"Which task did you mean?\n_(searched for: _{query_text}_)_",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+
 def build_app() -> Application:
     app = ApplicationBuilder().token(settings.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", _cmd_start))
     app.add_handler(CommandHandler("status", _cmd_status))
+    app.add_handler(CommandHandler("done", _cmd_done))
     app.add_handler(CallbackQueryHandler(_handle_button))
     return app
 
