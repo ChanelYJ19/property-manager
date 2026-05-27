@@ -9,7 +9,7 @@ from telegram import Bot
 
 from app import sheets
 from app.optin import get_chat_id, is_opted_in
-from app.telegram_bot import send_overdue_alert_threadsafe, send_reminder_threadsafe
+from app.telegram_bot import send_monthly_summary_threadsafe, send_overdue_alert_threadsafe, send_reminder_threadsafe
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,12 @@ def check_and_remind(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
             send_overdue_alert_threadsafe(bot, loop, deadline)
 
 
+def monthly_summary_job(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
+    if not is_opted_in():
+        return
+    send_monthly_summary_threadsafe(bot, loop)
+
+
 def start_scheduler(bot: Bot, loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     scheduler.add_job(
@@ -62,6 +68,13 @@ def start_scheduler(bot: Bot, loop: asyncio.AbstractEventLoop) -> BackgroundSche
         replace_existing=True,
         kwargs={"bot": bot, "loop": loop},
     )
+    scheduler.add_job(
+        monthly_summary_job,
+        trigger=CronTrigger(day=1, hour=9, minute=0),
+        id="monthly_summary",
+        replace_existing=True,
+        kwargs={"bot": bot, "loop": loop},
+    )
     scheduler.start()
-    log.info("Scheduler started — daily reminders at 09:00")
+    log.info("Scheduler started — daily reminders at 09:00, monthly summary on the 1st")
     return scheduler

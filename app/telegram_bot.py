@@ -245,3 +245,61 @@ def send_overdue_alert_threadsafe(bot: Bot, loop: asyncio.AbstractEventLoop, dea
         log.warning("No Telegram chat_id registered — skipping overdue alert for '%s'", deadline.get("Task"))
         return
     _threadsafe(send_overdue_alert(bot, chat_id, deadline), loop, deadline.get("Task", ""))
+
+
+async def send_monthly_summary(bot: Bot, chat_id: str) -> None:
+    try:
+        deadlines = sheets.get_deadlines()
+    except Exception:
+        log.exception("Failed to fetch deadlines for monthly summary")
+        return
+
+    today = date.today()
+    month_tasks = []
+    for d in deadlines:
+        try:
+            due = datetime.strptime(d["Due Date"], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if due.month == today.month and due.year == today.year:
+            month_tasks.append((due, d))
+
+    month_label = today.strftime("%B %Y")
+
+    if not month_tasks:
+        await bot.send_message(chat_id=chat_id, text=f"📅 No tasks due in {month_label}.")
+        return
+
+    month_tasks.sort(key=lambda t: t[0])
+
+    # Group by category
+    by_category: dict[str, list[tuple]] = {}
+    for due, d in month_tasks:
+        cat = d.get("Category", "Other") or "Other"
+        by_category.setdefault(cat, []).append((due, d))
+
+    pending = sum(1 for _, d in month_tasks if d.get("Status", "").strip().upper() not in ("DONE", "SKIPPED"))
+    lines = [f"📅 *{month_label}* — {len(month_tasks)} task{'s' if len(month_tasks) != 1 else ''} ({pending} pending)\n"]
+
+    for cat, tasks in by_category.items():
+        lines.append(f"*{cat}*")
+        for due, d in tasks:
+            status = d.get("Status", "").strip().upper()
+            icon = "✅" if status == "DONE" else "⏭️" if status == "SKIPPED" else "•"
+            lines.append(f"{icon} {d['Task']} — {due.strftime('%b')} {due.day}")
+        lines.append("")
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text="\n".join(lines).rstrip(),
+        parse_mode="Markdown",
+    )
+    log.info("Sent monthly summary for %s", month_label)
+
+
+def send_monthly_summary_threadsafe(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
+    chat_id = get_chat_id()
+    if not chat_id:
+        log.warning("No Telegram chat_id registered — skipping monthly summary")
+        return
+    _threadsafe(send_monthly_summary(bot, chat_id), loop, "monthly summary")
