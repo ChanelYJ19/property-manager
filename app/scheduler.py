@@ -9,11 +9,12 @@ from telegram import Bot
 
 from app import sheets
 from app.optin import get_chat_id, is_opted_in
-from app.telegram_bot import send_reminder_threadsafe
+from app.telegram_bot import send_overdue_alert_threadsafe, send_reminder_threadsafe
 
 log = logging.getLogger(__name__)
 
 REMINDER_DAYS_AHEAD = [7, 3, 1]
+OVERDUE_ALERT_DAYS = [1, 3, 7, 14]
 
 
 def check_and_remind(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
@@ -48,6 +49,8 @@ def check_and_remind(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
         days_until = (due - today).days
         if days_until in REMINDER_DAYS_AHEAD:
             send_reminder_threadsafe(bot, loop, deadline)
+        elif days_until < 0 and abs(days_until) in OVERDUE_ALERT_DAYS:
+            send_overdue_alert_threadsafe(bot, loop, deadline)
 
 
 def start_scheduler(bot: Bot, loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
