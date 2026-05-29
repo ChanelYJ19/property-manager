@@ -145,7 +145,7 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "You're all set! I'll send deadline reminders here.\n\n"
         "Tap <b>Mark Done</b>, <b>Skip</b>, or <b>Snooze</b> on any reminder to update the sheet.\n"
         "Or type /done <i>task name</i> anytime — I'll figure out which task you mean.\n"
-        "Use /status to check what's coming up.",
+        "Use /status to check what's coming up, or /help to see all commands.",
         parse_mode="HTML",
     )
     try:
@@ -154,6 +154,19 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     except Exception:
         log.exception("Failed to fetch deadlines for /start confirmation")
         await update.message.reply_text("Couldn't load deadlines right now — try /status in a moment.")
+
+
+async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "<b>Available commands</b>\n\n"
+        "/status — show overdue + upcoming tasks (next 30 days)\n"
+        "/add — add a new task to the sheet\n"
+        "/done <i>task name</i> — mark a task as done (fuzzy match)\n"
+        "/test — send a test reminder with live buttons\n"
+        "/help — show this message\n\n"
+        "On any reminder you can also tap <b>Mark Done</b>, <b>Skip</b>, or <b>Snooze</b> directly.",
+        parse_mode="HTML",
+    )
 
 
 async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -414,6 +427,7 @@ def build_app() -> Application:
         fallbacks=[CommandHandler("cancel", _add_cancel)],
     ))
     app.add_handler(CommandHandler("start", _cmd_start))
+    app.add_handler(CommandHandler("help", _cmd_help))
     app.add_handler(CommandHandler("status", _cmd_status))
     app.add_handler(CommandHandler("done", _cmd_done))
     app.add_handler(CommandHandler("test", _cmd_test))
