@@ -297,6 +297,10 @@ async def _cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await send_reminder(context.bot, str(update.effective_chat.id), deadline)
 
 
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log.exception("Unhandled exception for update %s", update, exc_info=context.error)
+
+
 def build_app() -> Application:
     app = ApplicationBuilder().token(settings.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", _cmd_start))
@@ -304,6 +308,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("done", _cmd_done))
     app.add_handler(CommandHandler("test", _cmd_test))
     app.add_handler(CallbackQueryHandler(_handle_button))
+    app.add_error_handler(_error_handler)
     return app
 
 

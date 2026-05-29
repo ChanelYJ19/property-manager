@@ -19,6 +19,7 @@ async def main() -> None:
         loop = asyncio.get_running_loop()
         scheduler = start_scheduler(tg_app.bot, loop)
 
+        await tg_app.start()
         await tg_app.updater.start_polling(drop_pending_updates=True)
         log.info("Telegram bot polling started")
 
@@ -28,6 +29,7 @@ async def main() -> None:
             pass
         finally:
             await tg_app.updater.stop()
+            await tg_app.stop()
             scheduler.shutdown()
             log.info("Shutdown complete")
 
