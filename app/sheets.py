@@ -41,17 +41,21 @@ def get_sheet(tab_name: str) -> gspread.Worksheet:
     return spreadsheet.worksheet(tab_name)
 
 
-def _parse_date(raw: str) -> str | None:
+def parse_date(raw: str) -> str | None:
     """Try to parse a date string and return YYYY-MM-DD, or None on failure."""
     raw = raw.strip()
     if not raw:
         return None
-    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
         try:
             return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
     return None
+
+
+# Keep private alias for internal callers
+_parse_date = parse_date
 
 
 def get_deadlines(tab_name: str = str(settings.ACTIVE_YEAR)) -> list[dict]:
@@ -116,6 +120,20 @@ def update_due_date(sheet_row: int, due_date_col: int, new_date: str, tab_name: 
     """Write a new due date into the month column for a given row."""
     sheet = get_sheet(tab_name)
     sheet.update_cell(sheet_row, due_date_col, new_date)
+
+
+def add_task(task: str, category: str, due_date_str: str, tab_name: str = str(settings.ACTIVE_YEAR)) -> None:
+    """Append a new task row with the due date in the correct month column."""
+    sheet = get_sheet(tab_name)
+    due = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+    month_col = COL_MONTH_START + (due.month - 1)
+
+    row = [""] * COL_MONTH_END
+    row[COL_CATEGORY - 1] = category
+    row[COL_TASK - 1] = task
+    row[month_col - 1] = due.strftime("%m/%d/%Y")
+
+    sheet.append_row(row)
 
 
 def find_and_update(

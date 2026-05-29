@@ -11,6 +11,9 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
 )
 
 from rapidfuzz import fuzz, process
@@ -305,8 +308,111 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
     log.exception("Unhandled exception for update %s", update, exc_info=context.error)
 
 
+# /add conversation states
+_ADD_NAME, _ADD_CATEGORY, _ADD_DUE = range(3)
+
+
+def _category_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
+    buttons = [[InlineKeyboardButton(cat, callback_data=f"addcat:{cat}")] for cat in categories[:8]]
+    buttons.append([InlineKeyboardButton("✏️ Other", callback_data="addcat:__other__")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def _cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    name = " ".join(context.args).strip() if context.args else ""
+    if name:
+        context.user_data["add_task"] = name
+        return await _add_ask_category(update, context)
+    await update.message.reply_text("What's the task name?")
+    return _ADD_NAME
+
+
+async def _add_got_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["add_task"] = update.message.text.strip()
+    return await _add_ask_category(update, context)
+
+
+async def _add_ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        deadlines = sheets.get_deadlines()
+        categories = sorted({d["Category"] for d in deadlines if d.get("Category")})
+    except Exception:
+        categories = []
+
+    msg = update.message or update.callback_query.message
+    if categories:
+        await msg.reply_text("What category?", reply_markup=_category_keyboard(categories))
+    else:
+        await msg.reply_text("What category?")
+    return _ADD_CATEGORY
+
+
+async def _add_got_category_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    cat = query.data.split(":", 1)[1]
+    if cat == "__other__":
+        await query.edit_message_text("Type the category name:")
+        return _ADD_CATEGORY
+    context.user_data["add_category"] = cat
+    await query.edit_message_text(
+        f"Category: <b>{_esc(cat)}</b>\n\nWhat's the due date? (e.g. 06/15/2025)",
+        parse_mode="HTML",
+    )
+    return _ADD_DUE
+
+
+async def _add_got_category_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data["add_category"] = update.message.text.strip()
+    await update.message.reply_text("What's the due date? (e.g. 06/15/2025)")
+    return _ADD_DUE
+
+
+async def _add_got_due(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    raw = update.message.text.strip()
+    due_date = sheets.parse_date(raw)
+    if not due_date:
+        await update.message.reply_text(
+            "Couldn't read that date. Try MM/DD/YYYY (e.g. 06/15/2025):"
+        )
+        return _ADD_DUE
+
+    task = context.user_data["add_task"]
+    category = context.user_data["add_category"]
+    try:
+        sheets.add_task(task, category, due_date)
+        await update.message.reply_text(
+            f"✅ Added <b>{_esc(task)}</b> [{_esc(category)}] due {_esc(raw)}.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        log.exception("Failed to add task '%s'", task)
+        await update.message.reply_text("Couldn't save to the sheet — try again in a moment.")
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def _add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()
+    await update.message.reply_text("Cancelled.")
+    return ConversationHandler.END
+
+
 def build_app() -> Application:
     app = ApplicationBuilder().token(settings.TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("add", _cmd_add)],
+        states={
+            _ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, _add_got_name)],
+            _ADD_CATEGORY: [
+                CallbackQueryHandler(_add_got_category_btn, pattern="^addcat:"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, _add_got_category_text),
+            ],
+            _ADD_DUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, _add_got_due)],
+        },
+        fallbacks=[CommandHandler("cancel", _add_cancel)],
+    ))
     app.add_handler(CommandHandler("start", _cmd_start))
     app.add_handler(CommandHandler("status", _cmd_status))
     app.add_handler(CommandHandler("done", _cmd_done))
