@@ -159,9 +159,11 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "<b>Available commands</b>\n\n"
-        "/status — show overdue + upcoming tasks (next 30 days)\n"
+        "/status — show overdue + upcoming tasks (next 30 days)\n\n"
         "/add — add a new task to the sheet\n"
-        "/done <i>task name</i> — mark a task as done (fuzzy match)\n"
+        "<i>e.g. /add or /add Insurance Renewal</i>\n\n"
+        "/done <i>task name</i> — mark a task as done (no need to type it exactly)\n"
+        "<i>e.g. /done insurance or /done water bill</i>\n\n"
         "/test — send a test reminder with live buttons\n"
         "/help — show this message\n\n"
         "On any reminder you can also tap <b>Mark Done</b>, <b>Skip</b>, or <b>Snooze</b> directly.",
