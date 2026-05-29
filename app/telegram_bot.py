@@ -49,11 +49,13 @@ async def send_overdue_alert(bot: Bot, chat_id: str, deadline: dict) -> None:
     name = deadline.get("Task", "Unknown task")
     due = deadline.get("Due Date", "unknown date")
     category = deadline.get("Category", "")
+    notes = deadline.get("Notes", "").strip()
     days_overdue = (date.today() - datetime.strptime(due, "%Y-%m-%d").date()).days
 
     header = f"[{_esc(category)}] " if category else ""
     overdue_str = "1 day overdue" if days_overdue == 1 else f"{days_overdue} days overdue"
-    text = f"⚠️ {header}<b>{_esc(name)}</b> is {overdue_str} (was due {_esc(due)})."
+    notes_line = f"\n<i>{_esc(notes)}</i>" if notes else ""
+    text = f"⚠️ {header}<b>{_esc(name)}</b> is {overdue_str} (was due {_esc(due)}).{notes_line}"
 
     await bot.send_message(
         chat_id=chat_id,
@@ -68,6 +70,7 @@ async def send_reminder(bot: Bot, chat_id: str, deadline: dict) -> None:
     name = deadline.get("Task", "Unknown task")
     due = deadline.get("Due Date", "unknown date")
     category = deadline.get("Category", "")
+    notes = deadline.get("Notes", "").strip()
     days_until = (datetime.strptime(due, "%Y-%m-%d").date() - date.today()).days
 
     if days_until == 1:
@@ -78,7 +81,8 @@ async def send_reminder(bot: Bot, chat_id: str, deadline: dict) -> None:
         urgency = f"due in {days_until} days ({_esc(due)})"
 
     header = f"[{_esc(category)}] " if category else ""
-    text = f"{header}<b>{_esc(name)}</b> is {urgency}."
+    notes_line = f"\n<i>{_esc(notes)}</i>" if notes else ""
+    text = f"{header}<b>{_esc(name)}</b> is {urgency}.{notes_line}"
 
     await bot.send_message(
         chat_id=chat_id,
