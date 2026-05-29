@@ -12,3 +12,4 @@ PUSHOVER_USER_KEY = os.getenv("PUSHOVER_USER_KEY", "")
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 ACTIVE_YEAR = int(os.getenv("ACTIVE_YEAR", "2025"))
+TIMEZONE = os.getenv("TIMEZONE", "America/Chicago")

@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,6 +11,7 @@ from telegram import Bot
 from app import rate_limit, sheets
 from app.optin import get_chat_id, is_opted_in
 from app.telegram_bot import send_monthly_summary_threadsafe, send_overdue_alert_threadsafe, send_reminder_threadsafe
+from config import settings
 
 log = logging.getLogger(__name__)
 
@@ -65,21 +67,22 @@ def monthly_summary_job(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
 
 
 def start_scheduler(bot: Bot, loop: asyncio.AbstractEventLoop) -> BackgroundScheduler:
+    tz = ZoneInfo(settings.TIMEZONE)
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         check_and_remind,
-        trigger=CronTrigger(hour=9, minute=0),
+        trigger=CronTrigger(hour=9, minute=0, timezone=tz),
         id="daily_reminder",
         replace_existing=True,
         kwargs={"bot": bot, "loop": loop},
     )
     scheduler.add_job(
         monthly_summary_job,
-        trigger=CronTrigger(day=1, hour=9, minute=0),
+        trigger=CronTrigger(day=1, hour=9, minute=0, timezone=tz),
         id="monthly_summary",
         replace_existing=True,
         kwargs={"bot": bot, "loop": loop},
     )
     scheduler.start()
-    log.info("Scheduler started — daily reminders at 09:00, monthly summary on the 1st")
+    log.info("Scheduler started — daily reminders at 09:00 %s, monthly summary on the 1st", settings.TIMEZONE)
     return scheduler
