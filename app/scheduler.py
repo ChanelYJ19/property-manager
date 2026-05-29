@@ -15,7 +15,7 @@ from config import settings
 
 log = logging.getLogger(__name__)
 
-REMINDER_DAYS_AHEAD = [7, 3, 1]
+REMINDER_DAYS_AHEAD = [14, 7, 3, 1]
 OVERDUE_ALERT_DAYS = [1, 3, 7, 14]
 
 
