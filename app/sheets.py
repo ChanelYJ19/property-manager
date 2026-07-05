@@ -132,12 +132,12 @@ def add_task(task: str, category: str, due_date_str: str, tab_name: str = str(se
     due = datetime.strptime(due_date_str, "%Y-%m-%d").date()
     month_col = COL_MONTH_START + (due.month - 1)
 
-    row = [""] * COL_MONTH_END
-    row[COL_CATEGORY - 1] = category
-    row[COL_TASK - 1] = task
-    row[month_col - 1] = due.strftime("%m/%d/%Y")
-
-    sheet.append_row(row)
+    # append_row detects the table as starting from col B (since col A is always
+    # empty), shifting all values one column right. Write to explicit cells instead.
+    next_row = len(sheet.get_all_values()) + 1
+    sheet.update_cell(next_row, COL_CATEGORY, category)
+    sheet.update_cell(next_row, COL_TASK, task)
+    sheet.update_cell(next_row, month_col, due.strftime("%m/%d/%Y"))
 
 
 def get_raw_last_rows(n: int = 5, tab_name: str = str(settings.ACTIVE_YEAR)) -> list[tuple[int, list[str]]]:
