@@ -338,19 +338,36 @@ async def _cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _cmd_debug(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show raw content of the last few sheet rows to diagnose column layout."""
+    """Show raw sheet info to diagnose column layout and tab name."""
+    from config import settings as cfg
+    lines = [f"<b>Tab:</b> {_esc(str(cfg.ACTIVE_YEAR))}"]
+
     try:
         rows = sheets.get_raw_last_rows(5)
-    except Exception:
-        log.exception("Failed to fetch raw rows for /debug")
-        await update.message.reply_text("Couldn't reach the sheet.")
+    except Exception as e:
+        await update.message.reply_text(
+            f"Tab: {_esc(str(cfg.ACTIVE_YEAR))}\nCouldn't read sheet: <code>{_esc(str(e))}</code>",
+            parse_mode="HTML",
+        )
         return
 
-    lines = ["<b>Last 5 sheet rows (raw):</b>"]
-    for row_idx, vals in rows:
-        cols = {i + 1: v for i, v in enumerate(vals) if v.strip()}
-        col_str = ", ".join(f"col{c}={_esc(v)}" for c, v in cols.items())
-        lines.append(f"Row {row_idx}: {col_str or '(empty)'}")
+    if not rows:
+        lines.append("No non-empty rows found in this tab.")
+    else:
+        lines.append(f"<b>Last {len(rows)} non-empty rows:</b>")
+        for row_idx, vals in rows:
+            cols = {i + 1: v for i, v in enumerate(vals) if v.strip()}
+            col_str = ", ".join(f"col{c}={_esc(v)}" for c, v in cols.items())
+            lines.append(f"Row {row_idx}: {col_str or '(all empty)'}")
+
+    try:
+        deadlines = sheets.get_deadlines()
+        pending = [d for d in deadlines if d.get("Status", "").strip().upper() not in ("DONE", "SKIPPED")]
+        lines.append(f"\n<b>Pending tasks parsed:</b> {len(pending)}")
+        for d in pending[-5:]:
+            lines.append(f"• {_esc(d['Task'])} [{_esc(d['Category'])}] due {_esc(d['Due Date'])}")
+    except Exception as e:
+        lines.append(f"get_deadlines error: <code>{_esc(str(e))}</code>")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
