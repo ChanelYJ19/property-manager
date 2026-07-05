@@ -1,6 +1,3 @@
-[build]
-builder = "NIXPACKS"
-
 [deploy]
 startCommand = "python3 run.py"
 restartPolicyType = "ON_FAILURE"
