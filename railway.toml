@@ -1,5 +1,4 @@
 [build]
-builder = "NIXPACKS"
 
 [deploy]
 startCommand = "python3 run.py"
