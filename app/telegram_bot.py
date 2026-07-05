@@ -76,10 +76,10 @@ async def send_reminder(bot: Bot, chat_id: str, deadline: dict) -> None:
     notes = deadline.get("Notes", "").strip()
     days_until = (datetime.strptime(due, "%Y-%m-%d").date() - date.today()).days
 
-    if days_until == 1:
-        urgency = "due <b>tomorrow</b>"
-    elif days_until == 0:
+    if days_until <= 0:
         urgency = "<b>due today</b>"
+    elif days_until == 1:
+        urgency = "due <b>tomorrow</b>"
     else:
         urgency = f"due in {days_until} days ({_esc(due)})"
 
@@ -202,10 +202,10 @@ async def _handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 parse_mode="HTML",
             )
             log.info("Row %s marked %s via Telegram", sheet_row, new_status)
-        except Exception:
+        except Exception as e:
             log.exception("Failed to update row %s", sheet_row)
             await query.edit_message_text(
-                text=original + "\n\n⚠️ <i>Update failed — check the sheet.</i>",
+                text=original + f"\n\n⚠️ <i>Update failed: {_esc(str(e))}</i>",
                 parse_mode="HTML",
             )
 
@@ -270,8 +270,10 @@ async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     matches = process.extract(query_text, task_names, scorer=fuzz.WRatio, limit=3, score_cutoff=50)
 
     if not matches:
+        known = "\n".join(f"• {_esc(n)}" for n in sorted(set(task_names))[:10])
         await update.message.reply_text(
-            f"Couldn't find a task matching <i>{_esc(query_text)}</i>. Use /status to see pending tasks.",
+            f"Couldn't find a task matching <i>{_esc(query_text)}</i>.\n\n"
+            f"<b>Pending tasks I know about:</b>\n{known}",
             parse_mode="HTML",
         )
         return
@@ -280,11 +282,18 @@ async def _cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     best_deadline = pending[best_idx]
 
     if best_score >= 85:
-        sheets.update_status(best_deadline["sheet_row"], "Done")
-        await update.message.reply_text(
-            f"✅ Marked <b>{_esc(best_name)}</b> as Done.",
-            parse_mode="HTML",
-        )
+        try:
+            sheets.update_status(best_deadline["sheet_row"], "Done")
+            await update.message.reply_text(
+                f"✅ Marked <b>{_esc(best_name)}</b> as Done.",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            log.exception("Failed to update status for '%s'", best_name)
+            await update.message.reply_text(
+                f"⚠️ Couldn't update the sheet for <b>{_esc(best_name)}</b>: <code>{_esc(str(e))}</code>",
+                parse_mode="HTML",
+            )
     else:
         buttons = [
             [InlineKeyboardButton(name, callback_data=f"done:{pending[idx]['sheet_row']}")]
@@ -311,12 +320,21 @@ async def _cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     deadline = pending[0]
+    due_date = deadline.get("Due Date", "")
+    try:
+        days_until = (datetime.strptime(due_date, "%Y-%m-%d").date() - date.today()).days
+    except ValueError:
+        days_until = 0
+
     await update.message.reply_text(
         "🧪 <b>Test reminder</b> — using your first pending task.\n"
         "<i>Buttons are live and will update the sheet if tapped.</i>",
         parse_mode="HTML",
     )
-    await send_reminder(context.bot, str(update.effective_chat.id), deadline)
+    if days_until < 0:
+        await send_overdue_alert(context.bot, str(update.effective_chat.id), deadline)
+    else:
+        await send_reminder(context.bot, str(update.effective_chat.id), deadline)
 
 
 async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

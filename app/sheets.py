@@ -90,6 +90,10 @@ def get_deadlines(tab_name: str = str(settings.ACTIVE_YEAR)) -> list[dict]:
         if not task_val:
             continue
 
+        # Rows added via /add carry their own category in col B alongside the task
+        # name in col C. Use it directly; otherwise fall back to the section header.
+        effective_category = category_val if category_val else current_category
+
         # Collect all due dates from month columns
         for month_offset in range(12):
             col_idx = COL_MONTH_START + month_offset  # 1-based
@@ -100,7 +104,7 @@ def get_deadlines(tab_name: str = str(settings.ACTIVE_YEAR)) -> list[dict]:
                     "Task": task_val,
                     "Due Date": due_date,
                     "Status": status_val,
-                    "Category": current_category,
+                    "Category": effective_category,
                     "Notes": row[3].strip(),  # col D
                     "sheet_row": row_idx,
                     "status_col": COL_STATUS,
