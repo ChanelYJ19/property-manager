@@ -337,6 +337,24 @@ async def _cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await send_reminder(context.bot, str(update.effective_chat.id), deadline)
 
 
+async def _cmd_debug(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show raw content of the last few sheet rows to diagnose column layout."""
+    try:
+        rows = sheets.get_raw_last_rows(5)
+    except Exception:
+        log.exception("Failed to fetch raw rows for /debug")
+        await update.message.reply_text("Couldn't reach the sheet.")
+        return
+
+    lines = ["<b>Last 5 sheet rows (raw):</b>"]
+    for row_idx, vals in rows:
+        cols = {i + 1: v for i, v in enumerate(vals) if v.strip()}
+        col_str = ", ".join(f"col{c}={_esc(v)}" for c, v in cols.items())
+        lines.append(f"Row {row_idx}: {col_str or '(empty)'}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.exception("Unhandled exception for update %s", update, exc_info=context.error)
 
@@ -451,6 +469,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("status", _cmd_status))
     app.add_handler(CommandHandler("done", _cmd_done))
     app.add_handler(CommandHandler("test", _cmd_test))
+    app.add_handler(CommandHandler("debug", _cmd_debug))
     app.add_handler(CallbackQueryHandler(_handle_button))
     app.add_error_handler(_error_handler)
     return app

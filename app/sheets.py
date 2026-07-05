@@ -140,6 +140,17 @@ def add_task(task: str, category: str, due_date_str: str, tab_name: str = str(se
     sheet.append_row(row)
 
 
+def get_raw_last_rows(n: int = 5, tab_name: str = str(settings.ACTIVE_YEAR)) -> list[tuple[int, list[str]]]:
+    """Return the last n non-empty rows as (1-based row_idx, values) tuples."""
+    sheet = get_sheet(tab_name)
+    all_rows = sheet.get_all_values()
+    result = []
+    for row_idx, row in enumerate(all_rows, start=1):
+        if any(v.strip() for v in row):
+            result.append((row_idx, row))
+    return result[-n:]
+
+
 def find_and_update(
     tab_name: str,
     lookup_col: str,
