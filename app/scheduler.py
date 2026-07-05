@@ -53,11 +53,15 @@ def check_and_remind(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
             if not rate_limit.already_sent(deadline["sheet_row"], raw_due, days_until):
                 if send_reminder_threadsafe(bot, loop, deadline):
                     rate_limit.mark_sent(deadline["sheet_row"], raw_due, days_until)
-        elif days_until < 0 and abs(days_until) in OVERDUE_ALERT_DAYS:
-            interval = days_until  # negative, e.g. -1, -3, -7
-            if not rate_limit.already_sent(deadline["sheet_row"], raw_due, interval):
-                if send_overdue_alert_threadsafe(bot, loop, deadline):
-                    rate_limit.mark_sent(deadline["sheet_row"], raw_due, interval)
+        elif days_until < 0:
+            days_overdue = abs(days_until)
+            is_alert_day = days_overdue in OVERDUE_ALERT_DAYS
+            is_weekly_followup = days_overdue > max(OVERDUE_ALERT_DAYS) and days_overdue % 7 == 0
+            if is_alert_day or is_weekly_followup:
+                interval = days_until  # negative, e.g. -1, -3, -7, -21, -28
+                if not rate_limit.already_sent(deadline["sheet_row"], raw_due, interval):
+                    if send_overdue_alert_threadsafe(bot, loop, deadline):
+                        rate_limit.mark_sent(deadline["sheet_row"], raw_due, interval)
 
 
 def monthly_summary_job(bot: Bot, loop: asyncio.AbstractEventLoop) -> None:
